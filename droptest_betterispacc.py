@@ -73,7 +73,13 @@ def intlog(x):
   "Returns indefinite integral of ln(x)"
   return x*(log(x) - 1)
   
-def RK4integrate(h0, v0, mwet, mdry, dragcoeff, dt, maxtime, enginelist, thrustlevel, lat=0, fn="log.txt"):
+def RK4integrate(h0, v0, mwet, mdry, dragcoeff, dt, maxtime, enginelist, thrustlevel, lat=0, fn="log", OutputAsCSV=False):
+  if OutputAsCSV:
+    filesuffix = ".csv"
+    delimiter = "; "
+  else:
+    filesuffix = ".txt"
+    delimiter = "  "    
   mass = mwet
   tt = 0
   h1 = h0
@@ -108,15 +114,15 @@ def RK4integrate(h0, v0, mwet, mdry, dragcoeff, dt, maxtime, enginelist, thrustl
   
   hs = -v0*ts + (KerbinGravConst(h0,lat) - drag/(2*mass) - dv_frac_const)*ts**2/2 - dv_frac_e * v_d *(1 + intlog(1 - ts/v_d)) - dv_frac_lin/6*ts**3
   
-  outfile = open(fn,"wt")
+  outfile = open(fn+filesuffix,"wt")
   
   outfile.write("Guess of t_s, h_s:\n")
-  outfile.write("t_s = " + '{0:.2f}'.format(ts) + " s;  h_s = " + '{0:.1f}'.format(hs) + " m\n")
+  outfile.write("t_s = " + '{0:.2f}'.format(ts) + " s" + delimiter + "h_s = " + '{0:.1f}'.format(hs) + " m\n")
   
-  outfile.write("Time,s // Distance traveled // H, m // VSpeed, m/s // Isp, s\n")
+  outfile.write("Time,s" + delimiter + "Distance traveled" + delimiter + " H, m" + delimiter + "VSpeed, m/s" + delimiter + "Isp, s\n")
   
   while (tt <= maxtime) and (v1 < 0):
-    outfile.write('{0:.3f}'.format(tt) + "  " + '{}'.format(h0-h1) + "  " + '{}'.format(h1) + "  " + '{}'.format(v1) + "  " + repr(TotalThrust(enginelist, KerbinPressure(h1))[1]) + "\n")
+    outfile.write('{0:.3f}'.format(tt) + delimiter + '{}'.format(h0-h1) + delimiter + '{}'.format(h1) + delimiter + '{}'.format(v1) + delimiter + repr(TotalThrust(enginelist, KerbinPressure(h1))[1]) + "\n")
 		
     k1a = (TotalThrust(enginelist, KerbinPressure(h1), thrustlevel)[0]*max(0,copysign(1,tburn-tt))  - DragForce(KerbinPressure(h1), v1, dragcoeff)*copysign(1,v1))/VesselMass(mwet,mdry,fuelflow,tt) - KerbinGravConst(h1,lat)
     k1v = v1
@@ -159,6 +165,6 @@ Timestep = 0.01
 MaxIntegrationTime = 1000
 InitLatitude = 90
 
-LogFile = "droplog_1_" + '{0:.0f}'.format(InitialHeight) + "_" + '{0:.0f}'.format(-InitialVspeed) + ".txt"
+LogFile = "droplog_1_" + '{0:.0f}'.format(InitialHeight) + "_" + '{0:.0f}'.format(-InitialVspeed)
 
-RK4integrate(InitialHeight, InitialVspeed, InitialMass, DryMass, DragArea, Timestep, MaxIntegrationTime, EngineList, UserThrustLevel, InitLatitude, LogFile)
+RK4integrate(InitialHeight, InitialVspeed, InitialMass, DryMass, DragArea, Timestep, MaxIntegrationTime, EngineList, UserThrustLevel, InitLatitude, LogFile,True)
