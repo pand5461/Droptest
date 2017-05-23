@@ -120,7 +120,7 @@ until mode > 2 {
   print "Pressure: " + round(pressure,2) + "    " at (0,23).
   print "Drag: " + round(drag) + "    " at (0,24).
   print "Suicide burn distance: " + round(hbrake) + "    " at (0,25).
-  if h < safeheight + hbrake set mode to 3.
+  if h < safeheight + hbrake + abs(vv)*0.25 set mode to 3.
   set vv_old to ship:verticalspeed.
   set t_old to time:seconds.
   wait 0.
