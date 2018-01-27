@@ -165,7 +165,7 @@ until vv0 > -0.1 * (t_now - ghere) / mass {
   if abs(tdiff) < 0.5 and tstop > 0 {
     local j_init to 2 * (final_acc - init_acc) / tstop - j_ground.
     set tlevel to (init_acc + ghere - drag_acc) * mass / t_now.
-    local tj_init to mass * sqrt(j_init / (maxflow * t_now)).
+    local tj_init to mass * sqrt(max(0, j_init) / (maxflow * t_now)).
     log "Req'd throttle : " + tlevel to "0:/log.txt".
     if tj_init > tlevel set tlevel to 0.2 * (4 * tlevel + min(1, tj_init)).
     log "Drag acc: " + drag_acc to "0:/log.txt".
