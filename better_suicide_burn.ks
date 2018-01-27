@@ -50,7 +50,8 @@ until ship:availablethrust > 0 {
 wait until verticalspeed < -10.
 
 lock steering to srfretrograde.
-local h_ground to latlng(latitude, longitude):terrainheight.
+local h0 to alt:radar + vdot(ship:partsnamed("landingLeg1-2")[0]:position - ship:controlpart:position, up:vector) - 1.8.
+local h_ground to altitude - h0.
 local g_ground to body:mu / (body:radius + h_ground)^2.
 local tvex_ground to ThrustIspat(body:atm:altitudepressure(h_ground)).
 local t_ground to tvex_ground[0].
@@ -59,7 +60,6 @@ set t_ground to tlevel1 * t_ground.
 local fuelflow to (tlevel0 + tlevel1) * 0.5 * maxflow.
 local ff_ground to tlevel1 * maxflow.
 
-local h0 to alt:radar + vdot(ship:partsnamed("landingLeg1-2")[0]:position - ship:controlpart:position, up:vector) - 1.8.
 local vv0 to verticalspeed.
 local vv1 to 0.
 local hstop to 0.
@@ -68,14 +68,14 @@ local init_acc to ThrustIsp()[0] * tlevel0 / mass - ghere.
 local tstop to -vv0 / init_acc.
 local final_mass to mass - fuelflow * tstop.
 local final_acc to t_ground / final_mass - g_ground.
-local ave_acc to (2 * init_acc + final_acc) / 3.
+local ave_acc to (2 * final_acc + init_acc) / 3.
 local tstop1 to -vv0 / ave_acc.
 local t0 to 0.
 local t1 to 0.
 local drag_acc to 0.
 local j_ground to 0.
 
-until h0 - hstop < -2 * vv0 {
+until h0 - hstop < -10 * vv0 {
   set vv0 to verticalspeed.
   set t0 to time:seconds.
   
@@ -115,33 +115,38 @@ set t0 to t1.
 clearscreen.
 local t_now to ThrustIsp()[0].
 local min_tlevel to tlevel1.
-until vv0 > -0.1 * (t_now - ghere) / mass {
+until tstop <= 0.1 {
   wait 0.
   set vv1 to verticalspeed.
   set t1 to time:seconds.
   local dt to t1 - t0.
   if body:atm:exists {
-    set drag_acc to 0.9 * drag_acc + max(0.1 * ((vv1 - vv0) / (t1 - t0) + ghere - min(throttle, 1) * t_now / mass), 0).
+    local expt to 0.5 * body:atm:altitudepressure(altitude) * (body:atm:altitudepressure(altitude - h0) - body:atm:altitudepressure(altitude)) / constant:e.
+    print "Drag exponent: " + expt at (0, 20).
+    set drag_acc to (t_ground / t_now)^expt * min(ghere, (0.9 * drag_acc + max(0.1 * ((vv1 - vv0) / (t1 - t0) + ghere - min(throttle, 1) * t_now / mass), 0))).
   }
   set t_now to ThrustIsp()[0].
   set vv0 to vv1.
   set h0 to alt:radar + vdot(ship:partsnamed("landingLeg1-2")[0]:position - ship:controlpart:position, up:vector) - 1.8.
   set ghere to body:mu / body:position:sqrmagnitude.
+  set h_ground to altitude - alt:radar.
+  set g_ground to body:mu / (body:radius + h_ground)^2.
+  set t_ground to tlevel1 * ThrustIspat(body:atm:altitudepressure(h_ground))[0].
   local a_total to throttle * t_now / (mass + fuelflow * dt) - g_ground + drag_acc.
   set h0 to h0 + (vv1 + 0.5 * a_total * dt) * dt.
   set vv1 to vv1 + a_total * dt.
   set final_acc to 1.
   set tstop to max(0.01, -2 * h0 / vv1 ).
-  local tdiff to 1.
+  set dt to 1.
   if tstop < 1 {
-    set tdiff to 0.
+    set dt to 0.
     set init_acc to 0.5 * vv1^2 / h0.
   }
   local niter to 0.
   local jts to 0.
   log tstop + "   " + init_acc to "0:/log.txt".
   local loopstart to time:seconds.
-  until abs(tdiff) < 0.02 or niter >= 8 {
+  until abs(dt) < 0.02 or niter >= 8 {
     set final_mass to mass - fuelflow * tstop.
     set final_acc to t_ground / final_mass.
     set j_ground to ff_ground / final_mass * final_acc.
@@ -149,8 +154,8 @@ until vv0 > -0.1 * (t_now - ghere) / mass {
     set jts to j_ground * tstop.
     local f to 4 * h0 + (vv1 + (jts / 6 - final_acc) * tstop) * tstop.
     local fdot to vv1 + tstop * (tstop * (fuelflow / final_mass * jts / 3 + j_ground * (0.5 - fuelflow / ff_ground)) - 2 * final_acc).
-    set tdiff to f / fdot.
-    set tstop to tstop - tdiff.
+    set dt to f / fdot.
+    set tstop to tstop - dt.
     set init_acc to 7 * final_acc - jts - 12 * (vv1 + 3 * h0 / tstop) / tstop.
     log tstop + "   " + init_acc to "0:/log.txt".
     set niter to niter + 1.
@@ -162,7 +167,7 @@ until vv0 > -0.1 * (t_now - ghere) / mass {
   print "Stop time: " + round(tstop, 2) + "        " at (0, 25).
   print "Stopping alt. above ground: " + round(h0 - 0.25 * tstop * (tstop * (final_acc - jts / 6) - vv1)) + "     " at (0,26).
   
-  if abs(tdiff) < 0.5 and tstop > 0 {
+  if abs(dt) < 0.5 and tstop > 0 {
     local j_init to 2 * (final_acc - init_acc) / tstop - j_ground.
     set tlevel to (init_acc + ghere - drag_acc) * mass / t_now.
     local tj_init to mass * sqrt(max(0, j_init) / (maxflow * t_now)).
