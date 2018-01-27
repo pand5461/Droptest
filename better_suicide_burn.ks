@@ -2,6 +2,9 @@ clearscreen.
 core:doevent("open terminal").
 deletepath("0:/log.txt").
 
+local bottompart to ship:partsnamed("landingLeg1-2")[0].
+local bph to 1.8.
+
 local tlevel0 to 0.95.
 local tlevel1 to 0.95.
 local tlevel to 0.
@@ -50,7 +53,7 @@ until ship:availablethrust > 0 {
 wait until verticalspeed < -10.
 
 lock steering to srfretrograde.
-local h0 to alt:radar + vdot(ship:partsnamed("landingLeg1-2")[0]:position - ship:controlpart:position, up:vector) - 1.8.
+local h0 to alt:radar + vdot(bottompart:position - ship:controlpart:position, up:vector) - bph.
 local h_ground to altitude - h0.
 local g_ground to body:mu / (body:radius + h_ground)^2.
 local tvex_ground to ThrustIspat(body:atm:altitudepressure(h_ground)).
@@ -100,7 +103,7 @@ until h0 - hstop < -10 * vv0 {
   if body:atm:exists {
     set drag_acc to (vv1 - vv0) / (t1 - t0) + ghere.
   }
-  set h0 to alt:radar + vdot(ship:partsnamed("landingLeg1-2")[0]:position - ship:controlpart:position, up:vector) - 1.8.
+  set h0 to alt:radar + vdot(bottompart:position - ship:controlpart:position, up:vector) - bph.
   set ghere to body:mu / body:position:sqrmagnitude.
   set init_acc to ThrustIsp()[0] * tlevel0 / mass - ghere.
   set final_mass to mass - fuelflow * tstop.
@@ -127,7 +130,7 @@ until tstop <= 0.1 {
   }
   set t_now to ThrustIsp()[0].
   set vv0 to vv1.
-  set h0 to alt:radar + vdot(ship:partsnamed("landingLeg1-2")[0]:position - ship:controlpart:position, up:vector) - 1.8.
+  set h0 to alt:radar + vdot(bottompart:position - ship:controlpart:position, up:vector) - bph.
   set ghere to body:mu / body:position:sqrmagnitude.
   set h_ground to altitude - alt:radar.
   set g_ground to body:mu / (body:radius + h_ground)^2.
