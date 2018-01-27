@@ -1,6 +1,44 @@
-// Wanted thrust levels at start and end of burn
-local tlevel0 to 0.9.
-local tlevel1 to 0.9.
+clearscreen.
+core:doevent("open terminal").
+deletepath("0:/log.txt").
+
+local tlevel0 to 0.95.
+local tlevel1 to 0.95.
+local tlevel to 0.
+local minthrott to 0.8.
+
+local g0 to 9.80665.
+
+function ThrustIsp {
+  list engines in el.
+  local vex to 1.
+  local ff to 0.
+  local tt to 0.
+  local te to 0.
+  for e in el {
+    set te to e:availablethrust.
+    set ff to ff + te/max(e:visp,0.01).
+    set tt to tt + te*vdot(facing:vector,e:facing:vector).
+  }
+  if tt<>0 set vex to g0*tt/ff.
+  return list(tt, vex).
+}
+
+function ThrustIspat {
+  parameter p.
+  list engines in el.
+  local vex to 1.
+  local ff to 0.
+  local tt to 0.
+  local te to 0.
+  for e in el {
+    set te to e:availablethrustat(p).
+    set ff to ff + te/max(e:ispat(p),0.01).
+    set tt to tt + te*vdot(facing:vector,e:facing:vector).
+  }
+  if tt<>0 set vex to g0*tt/ff.
+  return list(tt, vex).
+}
 
 wait 0.5.
 lock throttle to 0.
@@ -9,100 +47,142 @@ until ship:availablethrust > 0 {
   wait 0.2.
 }
 
-list engines in el.
 wait until verticalspeed < -10.
 
 lock steering to srfretrograde.
-local h_ground to latlng(latitude, longitude):terrainheight. // heightof ground directly underneath
-local g_ground to body:mu / (body:radius + h_ground)^2. // gravity at surface
-local Isp to el[0]:ispat(body:atm:altitudepressure(h_ground)). // specific impulse of all active engines at terrain level
-local maxflow to el[0]:maxthrustat(0) / (el[0]:visp * 9.80665). // total fuel flow at max throttle
-local t_ground to ship:availablethrustat(body:atm:altitudepressure(h_ground)). // thrust at ground level at max throttle
-local fuelflow to (tlevel0 + tlevel1) * 0.5 * maxflow. // average fuel flow during the burn
-local init_acc to availablethrust * tlevel0 / mass. // starting thrust acceleration
+local h_ground to latlng(latitude, longitude):terrainheight.
+local g_ground to body:mu / (body:radius + h_ground)^2.
+local tvex_ground to ThrustIspat(body:atm:altitudepressure(h_ground)).
+local t_ground to tvex_ground[0].
+local maxflow to t_ground / tvex_ground[1].
+set t_ground to tlevel1 * t_ground.
+local fuelflow to (tlevel0 + tlevel1) * 0.5 * maxflow.
+local ff_ground to tlevel1 * maxflow.
 
-local h0 to altitude - 5.
+local h0 to alt:radar + vdot(ship:partsnamed("landingLeg1-2")[0]:position - ship:controlpart:position, up:vector) - 1.8.
 local vv0 to verticalspeed.
 local vv1 to 0.
-local hstop to alt:radar.
-local ghere to body:mu / body:position:sqrmagnitude. // gravity at current altitude
-local tstop to -vv0 / (init_acc - ghere). // initial estimate of time-to-stop
-local final_acc to t_ground * tlevel1 / (mass - fuelflow * tstop) - g_ground. // estimate of acceleration at touchdown (incl. gravity)
-local ave_acc to (2 * (init_acc - ghere) + final_acc) / 3. // estimate of average acceleration through burn
-local tstop1 to -vv0 / ave_acc. // corrected estimate of time-to-stop
-local t0 to 0. // used to estimate drag
+local hstop to 0.
+local ghere to body:mu / body:position:sqrmagnitude.
+local init_acc to ThrustIsp()[0] * tlevel0 / mass - ghere.
+local tstop to -vv0 / init_acc.
+local final_mass to mass - fuelflow * tstop.
+local final_acc to t_ground / final_mass - g_ground.
+local ave_acc to (2 * init_acc + final_acc) / 3.
+local tstop1 to -vv0 / ave_acc.
+local t0 to 0.
 local t1 to 0.
 local drag_acc to 0.
-local j0 to 6 * (vv0 / tstop + final_acc) / tstop. // wanted jerk (time derivative of acceleration) at burn start
+local j_ground to 0.
 
-until hstop - h_ground < -vv0 * 0.2 {
+until h0 - hstop < -2 * vv0 {
   set vv0 to verticalspeed.
   set t0 to time:seconds.
-  // refine time-to-stop estimate
-  until abs(tstop - tstop1) < 0.05 {
+  
+  local niter to 0.
+  until abs(tstop - tstop1) < 0.05 or niter >= 10 {
     set tstop to tstop1.
-    set final_acc to t_ground * tlevel1 / (mass - fuelflow * tstop) - g_ground.
-    set j0 to 6 * (vv0 / tstop + final_acc) / tstop.
-    set ave_acc to final_acc - j0 * tstop / 6.
-    set tstop1 to -vv0 / ave_acc.
+    set final_mass to mass - fuelflow * tstop.
+    set final_acc to t_ground / final_mass - g_ground.
+    set j_ground to ff_ground / final_mass * final_acc.
+    set tstop1 to ((2 * final_acc + init_acc) - sqrt((2 * final_acc + init_acc)^2 + 6 * vv0 * j_ground)) / j_ground.
+    set niter to niter + 1.
   }
 
   set tstop to 0.5 * (tstop + tstop1).
 
-  local snap to -j0 / tstop. // wanted snap (time derivative of jerk)
-  
-  set hstop to h0 + (vv0 + ((init_acc + drag_acc - ghere) * 0.5 + (j0 / 6 + snap * tstop / 24) * tstop) * tstop) * tstop. // wicked maths to calculate altitude ASL at stop if burn starts right now
-  print "Stopping alt. above ground: " + round(hstop - h_ground) + "        " at (0,26).
+  set hstop to ((init_acc - final_acc) * tstop / 12 - vv0 * 0.5) * tstop.
+  print "Stopping alt. above ground: " + round(h0 - hstop) + "        " at (0,26).
   print "Stop time: " + round(tstop, 2) + "        " at (0, 25).
   wait 0.
   set vv1 to verticalspeed.
   set t1 to time:seconds.
-  set init_acc to availablethrust * tlevel0 / mass.
-  set h0 to altitude - 5.5.
+  if body:atm:exists {
+    set drag_acc to (vv1 - vv0) / (t1 - t0) + ghere.
+  }
+  set h0 to alt:radar + vdot(ship:partsnamed("landingLeg1-2")[0]:position - ship:controlpart:position, up:vector) - 1.8.
   set ghere to body:mu / body:position:sqrmagnitude.
-  set final_acc to t_ground * tlevel1 / (mass - fuelflow * tstop) - g_ground.
-  set ave_acc to (2 * (init_acc + drag_acc - ghere) + final_acc) / 3.
-  set tstop1 to -vv1 / ave_acc.
+  set init_acc to ThrustIsp()[0] * tlevel0 / mass - ghere.
+  set final_mass to mass - fuelflow * tstop.
+  set final_acc to t_ground / final_mass.
+  set j_ground to ff_ground / final_mass * final_acc.
+  set final_acc to final_acc - g_ground.
+  set tstop1 to ((2 * final_acc + init_acc) - sqrt((2 * final_acc + init_acc)^2 + 6 * vv1 * j_ground)) / j_ground.
 }
-// exit from loop must be roughly when suicide burn is to start (a bit higher in atmospheres, because drag is ignored)
 
 set vv0 to vv1.
 set t0 to t1.
-until vv0 > -0.5 {
+clearscreen.
+local t_now to ThrustIsp()[0].
+local min_tlevel to tlevel1.
+until vv0 > -0.1 * (t_now - ghere) / mass {
   wait 0.
-  // estimate drag
   set vv1 to verticalspeed.
+  set t1 to time:seconds.
+  local dt to t1 - t0.
   if body:atm:exists {
-    set t1 to time:seconds.
-    set drag_acc to  (vv1 - vv0) / (t1 - t0) + ghere - min(throttle, 1) * availablethrust / mass.
-    set t0 to t1.
+    set drag_acc to 0.9 * drag_acc + max(0.1 * ((vv1 - vv0) / (t1 - t0) + ghere - min(throttle, 1) * t_now / mass), 0).
   }
+  set t_now to ThrustIsp()[0].
   set vv0 to vv1.
-  set h0 to alt:radar - 5.5.
+  set h0 to alt:radar + vdot(ship:partsnamed("landingLeg1-2")[0]:position - ship:controlpart:position, up:vector) - 1.8.
   set ghere to body:mu / body:position:sqrmagnitude.
-  set final_acc to t_ground * tlevel1 / (mass - fuelflow * tstop) - g_ground.
-  // another way to calculate stopping time, now based on current altitude and speed
-  local discrim to max(0, (vv1 / 4)^2 + final_acc * h0).
-  set tstop1 to max( 0, 2 / final_acc * (vv1 / 4 + sqrt(discrim))).
-  until abs(tstop - tstop1) < 0.05 {
-    set tstop to tstop1.
-    set final_acc to t_ground * tlevel1 / (mass - fuelflow * tstop) - g_ground.
-    set discrim to max(0, (vv1 / 4)^2 + final_acc * h0).
-    set tstop1 to max( 0, 2 / final_acc * (vv1 / 4 + sqrt(discrim))).
+  local a_total to throttle * t_now / (mass + fuelflow * dt) - g_ground + drag_acc.
+  set h0 to h0 + (vv1 + 0.5 * a_total * dt) * dt.
+  set vv1 to vv1 + a_total * dt.
+  set final_acc to 1.
+  set tstop to max(0.01, -2 * h0 / vv1 ).
+  local tdiff to 1.
+  if tstop < 1 {
+    set tdiff to 0.
+    set init_acc to 0.5 * vv1^2 / h0.
   }
-  set tstop to 0.5 * (tstop + tstop1).
+  local niter to 0.
+  local jts to 0.
+  log tstop + "   " + init_acc to "0:/log.txt".
+  local loopstart to time:seconds.
+  until abs(tdiff) < 0.02 or niter >= 8 {
+    set final_mass to mass - fuelflow * tstop.
+    set final_acc to t_ground / final_mass.
+    set j_ground to ff_ground / final_mass * final_acc.
+    set final_acc to final_acc - g_ground.
+    set jts to j_ground * tstop.
+    local f to 4 * h0 + (vv1 + (jts / 6 - final_acc) * tstop) * tstop.
+    local fdot to vv1 + tstop * (tstop * (fuelflow / final_mass * jts / 3 + j_ground * (0.5 - fuelflow / ff_ground)) - 2 * final_acc).
+    set tdiff to f / fdot.
+    set tstop to tstop - tdiff.
+    set init_acc to 7 * final_acc - jts - 12 * (vv1 + 3 * h0 / tstop) / tstop.
+    log tstop + "   " + init_acc to "0:/log.txt".
+    set niter to niter + 1.
+  }
+  log "=================" to "0:/log.txt".
+  log "Tstop converged in " + round(time:seconds - loopstart, 2) to "0:/log.txt".
+  log "Throttle: " + throttle to "0:/log.txt".
+
   print "Stop time: " + round(tstop, 2) + "        " at (0, 25).
+  print "Stopping alt. above ground: " + round(h0 - 0.25 * tstop * (tstop * (final_acc - jts / 6) - vv1)) + "     " at (0,26).
   
-  local j0 to 6 * (vv1 / tstop + final_acc) / tstop.
-  // after calculating jerk, we can calculate the acceleration needed to stop at ground level, assuming constant snap
-  set init_acc to ghere - drag_acc + final_acc - j0 * tstop * 0.5.
-  set tlevel to init_acc * mass / availablethrust.
-  if tlevel >= tlevel0 or throttle > 0 lock throttle to min(1,tlevel).
+  if abs(tdiff) < 0.5 and tstop > 0 {
+    local j_init to 2 * (final_acc - init_acc) / tstop - j_ground.
+    set tlevel to (init_acc + ghere - drag_acc) * mass / t_now.
+    local tj_init to mass * sqrt(j_init / (maxflow * t_now)).
+    log "Req'd throttle : " + tlevel to "0:/log.txt".
+    if tj_init > tlevel set tlevel to 0.2 * (4 * tlevel + min(1, tj_init)).
+    log "Drag acc: " + drag_acc to "0:/log.txt".
+    log "Req'd throttle from j: " + tj_init to "0:/log.txt".
+    if throttle > 0 or tlevel > tlevel0 {
+      lock throttle to max(minthrott, min(1, tlevel)).
+      print "Throttle level: " + round(throttle, 2) + "    " at (0, 23).
+    }
+  }
   if throttle > 0 set fuelflow to (throttle + tlevel1) * 0.5 * maxflow.
+  set t0 to t1.
 }
 lock throttle to 0.
+set ship:control:pilotmainthrottle to 0.
 lock steering to up.
 
+wait 1.
+unlock throttle. unlock steering.
 wait until ship:status = "landed" or ship:status = "splashed".
-set ship:control:pilotmainthrottle to 0.
-unlock all.
+print "The ship has " + ship:status + ".".
